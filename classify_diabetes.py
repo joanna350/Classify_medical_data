@@ -1,32 +1,20 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py
-#     text_representation:
-#       extension: .py
-#       format_name: light
-#       format_version: '1.5'
-#       jupytext_version: 1.10.2
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
-
-# Diabetes data is a representative one for classifier model designs as well as fitting for prediction.
-
-# +
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
+import logging
 import sklearn
+import graphviz
+import os
+
+from collections import Counter
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_predict
 from sklearn import metrics
 from imblearn.over_sampling import RandomOverSampler
-import seaborn as sns
+
 from math import log
 import xgboost as xgb
 
@@ -71,21 +59,6 @@ def lognorm(df):
     return df
 
 
-# -
-
-# Logistic regression was not performant enough, even after regularizing to make the preprocessing effective. Or with ovevsampling or augmenting of the data, to balance the shortage of negative samples.
-#
-# Deploying Extreme Gradient Boost Classifier with oversampling however, drastically improved the measure of interest. Other than the commonly observed recall and accuracy, my attention was on getting the false negative rate low enough. 
-#
-# This is due to the data being of medical nature, where the modeller should ensure that the model do not fail to detect the patients' conditions that demand adequate measures.
-
-# +
-# feature engineering
-from collections import Counter
-import graphviz
-import os
-
-
 def preprocess(df):
     '''
     given: data
@@ -105,13 +78,7 @@ def fit(X_train, y_train, X_test, y_test):
     given: training data
     return: fit model
     '''
-#     logreg = LogisticRegression(
-#                                 penalty='l1',
-#                                 solver='liblinear', 
-#                                 C=10.0, 
-#                                 random_state=0
-#                                 )
-    model = xgb.XGBClassifier(objective="binary:logistic", 
+   model = xgb.XGBClassifier(objective="binary:logistic", 
                               random_state=42, 
                               eval_metric="auc")
 
@@ -191,11 +158,21 @@ def get_validation(predictions, true):
     return cnf_matrix
 
 def oversample(X, y):
+    '''
+    means to adjust unbalanced data
+    :param: given raw (imbalanced) features and outputs
+    :return: balanced features and outputs
+    '''
     ros = RandomOverSampler(random_state=0)
     X_resampled, y_resampled = ros.fit_resample(X, y)
     return X_resampled, y_resampled
 
 def augment(X, y):
+    '''
+    manual way to address imbalance in data
+    :param: given raw features and outputs
+    :return: balanced features and outputs
+    '''
     findex = y.index[y==False].tolist()
     moref = X.loc[findex, :]
     X = pd.concat([X, moref])
@@ -204,12 +181,13 @@ def augment(X, y):
     return X, y
 
 def execute(X, y):
- 
-    
+    '''
+    main function for model learning and return of performance
+    '''
     tp = y[y==True].count()
     tn = y[y==False].count()
-    print('init positive ', tp)
-    print('init negative ', tn)
+    logging('init positive ', tp)
+    logging('init negative ', tn)
     
     X, y = oversample(X, y) # better
     X_train, X_test, y_train, y_test= train_test_split(X, y,
@@ -217,22 +195,22 @@ def execute(X, y):
                                                     random_state = 0)
     
     a, b = y_train[y_train==True].count(), y_train[y_train==False].count()
-    print('train positive ', a)
-    print('train negative ', b)
-    print('percentage ', a/(a+b))
+    logging('train positive ', a)
+    logging('train negative ', b)
+    logging('percentage ', a/(a+b))
 
     tp = y_test[y_test==True].count()
     tn = y_test[y_test==False].count()
-    print('test positive ', tp)
-    print('test negative ', tn)
+    logging('test positive ', tp)
+    logging('test negative ', tn)
 
     model = fit(X_train, y_train, X_test, y_test)
     y_pred, pred_prob = get_prediction(model, X_test)
 
     pp = np.sum(y_pred)
     pf = np.sum(~y_pred)
-    print('positive outcome ', pp)
-    print('negative outcome ', pf)
+    logging('positive outcome ', pp)
+    logging('negative outcome ', pf)
 
     cnf_matrix = get_validation(y_pred, y_test)
     evaluate(cnf_matrix)
@@ -243,31 +221,30 @@ def evaluate(cnf_matrix):
     return: None
     '''    
     TP, FN, TN, FP = cnf_matrix[1][1], cnf_matrix[1][0], cnf_matrix[0][0], cnf_matrix[0][1]
-    print('Evaluation')
-    print('Accuracy: ', (TP+TN)/(TP+FN+TN+FP))
-    print('Precision: ', TP/(TP+FP))
-    print('Recall/True positive rate: ', TP/(TP+FN))
-    print('False positive rate: ',FP/(FP+TN))
-    print('False negative rate: ',FN/(FN+TP))
+    logging('Evaluation')
+    logging('Accuracy: ', (TP+TN)/(TP+FN+TN+FP))
+    logging('Precision: ', TP/(TP+FP))
+    logging('Recall/True positive rate: ', TP/(TP+FN))
+    logging('False positive rate: ',FP/(FP+TN))
+    logging('False negative rate: ',FN/(FN+TP))
     
 def crossval(X, y):
+    '''
+    cross validation
+    '''
     predictions = cross_val_predict(model, X, y, cv = 5)
-
     return predictions
 
 
-# -
+if __name__ == '__main__':
+    logging.getLogger().setLevel(logging.INFO)
+    df = parse(path)
+    df = lognorm(df)
+    df = preprocess(df)
 
-# Logistic regression is a scale-invariant model, and one that works moderately well in a balanced data. In this case however, the aid of XGBClassifier that parallelizes the learning of decision trees improved the model performance drastically. It handles the grid search for parameter tuning internally yet not forsaking the speed of training. This may be explained by its leverage of openMP library.
+    cols = list(df.columns)
+    cols.pop()
+    X = df[cols]
+    y = df['Outcome']
 
-# +
-df = parse(path)
-df = lognorm(df)
-df = preprocess(df)
-
-cols = list(df.columns)
-cols.pop()
-X = df[cols]
-y = df['Outcome']
-
-execute(X, y)
+    execute(X, y)
